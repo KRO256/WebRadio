@@ -138,7 +138,7 @@ function sendDesktopNotification(newTrack) {
   if (!newTrack || newTrack === lastSongTitle || newTrack.includes("Fetching")) return;
 
   const options = {
-    body: `Now Playing: ${nowPlaying.textContent}`,
+    body: newTrack,
     silent: true,
   };
 
@@ -319,7 +319,7 @@ async function updateMetadata(url) {
 
     const reader = response.body.getReader();
     const icyMetaInt = response.headers.get('icy-metaint');
-    
+
     if (!icyMetaInt) {
       songTitle.textContent = "-- No Live Metadata --";
       return;
@@ -336,23 +336,24 @@ async function updateMetadata(url) {
       if (bytesRead >= metaInt) {
         const offset = metaInt - (bytesRead - value.length);
         const metaLength = value[offset] * 16;
-        
+
         if (metaLength > 0) {
           const metaData = new TextDecoder("utf-8").decode(
             value.slice(offset + 1, offset + 1 + metaLength)
           );
           const match = metaData.match(/StreamTitle='(.*?)';/);
           if (match && match[1]) {
-            songTitle.textContent = match[1];
-
-            songTitle.textContent = newTitle;
-
-            sendDesktopNotification(newTitle);
+            const newTitle = match[1];
+            if (newTitle !== lastSongTitle) {
+              songTitle.textContent = newTitle;
+              sendDesktopNotification(newTitle);
+            }
           }
         }
         break; 
       }
     }
+
     reader.cancel();
   } catch (err) {
     console.warn("Metadata error:", err);
@@ -362,7 +363,7 @@ async function updateMetadata(url) {
 function startMetadataMonitor(url) {
   stopMetadataMonitor();
   updateMetadata(url);
-  metadataInterval = setInterval(() => updateMetadata(url), 15000); // 15秒おき
+  metadataInterval = setInterval(() => updateMetadata(url), 3000);
 }
 
 function stopMetadataMonitor() {
