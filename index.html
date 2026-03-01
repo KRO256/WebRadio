@@ -134,6 +134,25 @@ const dataArray = new Uint8Array(bufferLength);
 const songTitle = document.getElementById("songTitle");
 let metadataInterval = null;
 
+function sendDesktopNotification(newTrack) {
+  if (!newTrack || newTrack === lastSongTitle || newTrack.includes("Fetching")) return;
+
+  const options = {
+    body: `Now Playing: ${nowPlaying.textContent}`,
+    silent: true,
+  };
+
+  const notification = new Notification("Now Playing", options);
+
+  notification.onclick = () => {
+    console.log("Notification clicked");
+  };
+
+  lastSongTitle = newTrack;
+}
+
+let lastSongTitle = "";
+
 const savedTheme = localStorage.getItem("theme");
 if (savedTheme) {
   html.setAttribute("data-theme", savedTheme);
@@ -325,6 +344,10 @@ async function updateMetadata(url) {
           const match = metaData.match(/StreamTitle='(.*?)';/);
           if (match && match[1]) {
             songTitle.textContent = match[1];
+
+            songTitle.textContent = newTitle;
+
+            sendDesktopNotification(newTitle);
           }
         }
         break; 
