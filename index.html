@@ -68,10 +68,12 @@
             <option value="sunset">sunset</option>
           </select>
         </div>
+        
+        <p id="songTitle" class="text-sm italic opacity-80 min-h-[1.5rem]">
+          -- No Track Info --
+        </p>
 
-        <h2 class="card-title">Web Radio Player</h2>
-
-        <p id="nowPlaying" class="text-sm opacity-70">
+        <p id="nowPlaying" class="text-xs opacity-70">
           Select a station
         </p>
 
@@ -129,6 +131,8 @@ source.connect(analyser);
 analyser.connect(audioContext.destination);
 const bufferLength = analyser.frequencyBinCount;
 const dataArray = new Uint8Array(bufferLength);
+const songTitle = document.getElementById("songTitle");
+let metadataInterval = null;
 
 const savedTheme = localStorage.getItem("theme");
 if (savedTheme) {
@@ -170,14 +174,6 @@ searchBtn.onclick = async () => {
   }
 };
 
-resultList.onchange = async () => {
-  await audioContext.resume();
-  radio.src = resultList.value;
-  radio.play();
-  nowPlaying.textContent = resultList.options[resultList.selectedIndex].text;
-  btn.textContent = "Pause";
-};
-
 radio.volume = 0.5;
 
 btn.onclick = async () => {
@@ -191,16 +187,6 @@ btn.onclick = async () => {
     btn.textContent = "Play";
   }
 };
-
-stationList.querySelectorAll("a").forEach(item => {
-  item.onclick = () => {
-    const url = item.dataset.url;
-    radio.src = url;
-    radio.play();
-    btn.textContent = "Pause";
-    nowPlaying.textContent = item.textContent;
-  };
-});
 
 volume.oninput = () => {
   radio.volume = volume.value;
@@ -245,12 +231,6 @@ radio.addEventListener("playing", () => {
   startTimer();
   startBitrateMonitor();
   setStatus("Connected", "badge-success");
-});
-
-radio.addEventListener("pause", () => {
-  stopTimer();
-  stopBitrateMonitor();
-  setStatus("Paused", "badge-info");
 });
 
 radio.addEventListener("error", () => {
@@ -311,6 +291,90 @@ function stopBitrateMonitor() {
   clearInterval(bitrateInterval);
   bitrateDisplay.textContent = "Speed: -- kbps";
 }
+
+async function updateMetadata(url) {
+  try {
+    const response = await fetch(url, {
+      headers: { 'Icy-MetaData': '1' }
+    });
+
+    const reader = response.body.getReader();
+    const icyMetaInt = response.headers.get('icy-metaint');
+    
+    if (!icyMetaInt) {
+      songTitle.textContent = "-- No Live Metadata --";
+      return;
+    }
+
+    const metaInt = parseInt(icyMetaInt);
+    let bytesRead = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.length;
+
+      if (bytesRead >= metaInt) {
+        const offset = metaInt - (bytesRead - value.length);
+        const metaLength = value[offset] * 16;
+        
+        if (metaLength > 0) {
+          const metaData = new TextDecoder("utf-8").decode(
+            value.slice(offset + 1, offset + 1 + metaLength)
+          );
+          const match = metaData.match(/StreamTitle='(.*?)';/);
+          if (match && match[1]) {
+            songTitle.textContent = match[1];
+          }
+        }
+        break; 
+      }
+    }
+    reader.cancel();
+  } catch (err) {
+    console.warn("Metadata error:", err);
+  }
+}
+
+function startMetadataMonitor(url) {
+  stopMetadataMonitor();
+  updateMetadata(url);
+  metadataInterval = setInterval(() => updateMetadata(url), 15000); // 15秒おき
+}
+
+function stopMetadataMonitor() {
+  if (metadataInterval) clearInterval(metadataInterval);
+}
+
+stationList.querySelectorAll("a").forEach(item => {
+  item.onclick = () => {
+    const url = item.dataset.url;
+    radio.src = url;
+    radio.play();
+    btn.textContent = "Pause";
+    nowPlaying.textContent = item.textContent;
+    songTitle.textContent = "Fetching track info...";
+    startMetadataMonitor(url);
+  };
+});
+
+resultList.onchange = async () => {
+  await audioContext.resume();
+  const url = resultList.value;
+  radio.src = url;
+  radio.play();
+  nowPlaying.textContent = resultList.options[resultList.selectedIndex].text;
+  songTitle.textContent = "Fetching track info...";
+  btn.textContent = "Pause";
+  startMetadataMonitor(url);
+};
+
+radio.addEventListener("pause", () => {
+  stopTimer();
+  stopBitrateMonitor();
+  stopMetadataMonitor();
+  setStatus("Paused", "badge-info");
+});
 
 document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && e.target.tagName !== "INPUT") {
